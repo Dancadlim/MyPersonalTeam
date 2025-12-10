@@ -1,1 +1,3 @@
-pip install streamlit google-generativeai fpdf
+streamlit
+google-generativeai
+fpdf
