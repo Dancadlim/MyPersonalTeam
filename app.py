@@ -44,7 +44,7 @@ if api_key:
         "top_k": 1,
         "max_output_tokens": 4096,
     }
-    model = genai.GenerativeModel(model_name="gemini-1.5-pro-latest",
+    model = genai.GenerativeModel(model_name="gemini-2.5-pro",
                                   generation_config=generation_config)
 else:
     # Se não tiver chave, mostra um aviso discreto na sidebar
