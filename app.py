@@ -4,10 +4,7 @@ from google.api_core import exceptions as google_exceptions
 import time
 from fpdf import FPDF
 import os
-#
-#
-#testando as paradas ai
-#
+
 # --- 1. CONFIGURAÇÃO DA PÁGINA E API ---
 st.set_page_config(page_title="Holistic Health AI", page_icon="🧬", layout="wide")
 
