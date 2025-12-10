@@ -18,37 +18,38 @@ if 'dados_usuario' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
-# --- LÓGICA DE API KEY (Secrets ou Input Manual) ---
+# --- LÓGICA DE API KEY (Automática via Secrets) ---
 api_key = None
 
-# 1. Tenta pegar dos Secrets do Streamlit
 try:
-    api_key = st.secrets.get("GOOGLE_API_KEY")
-except FileNotFoundError:
-    pass # Arquivo secrets não existe localmente
+    # Tenta ler a estrutura que você criou na imagem: [google] -> api_key
+    if "google" in st.secrets and "api_key" in st.secrets["google"]:
+        api_key = st.secrets["google"]["api_key"]
+    
+    # Fallback: Tenta ler se estiver solta (caso mude depois)
+    elif "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+        
+except Exception as e:
+    # Se der erro de leitura (ex: localmente sem arquivo secrets.toml)
+    pass
 
-# 2. Se não achou nos secrets, cria um campo na barra lateral
+# Se não encontrar a chave, para o app e avisa (sem mostrar campo de input)
 if not api_key:
-    with st.sidebar:
-        st.header("⚙️ Configuração")
-        api_key = st.text_input("Insira sua Google API Key:", type="password", help="Necessário para gerar o plano.")
-        st.caption("Não tem uma chave? [Gere aqui](https://aistudio.google.com/app/apikey).")
+    st.error("🚨 Erro de Configuração: API Key não detectada.")
+    st.info("Certifique-se de que a chave está configurada nos 'Secrets' do Streamlit Cloud.")
+    st.stop() # Interrompe o código aqui para não dar erro mais para frente
 
-# 3. Configura o Gemini se a chave existir
-model = None
-if api_key:
-    genai.configure(api_key=api_key)
-    generation_config = {
-        "temperature": 0.7,
-        "top_p": 1,
-        "top_k": 1,
-        "max_output_tokens": 4096,
-    }
-    model = genai.GenerativeModel(model_name="gemini-2.5-pro",
-                                  generation_config=generation_config)
-else:
-    # Se não tiver chave, mostra um aviso discreto na sidebar
-    st.sidebar.warning("⚠️ API Key não configurada. O app não funcionará.")
+# --- CONFIGURA O GEMINI ---
+genai.configure(api_key=api_key)
+generation_config = {
+    "temperature": 0.7,
+    "top_p": 1,
+    "top_k": 1,
+    "max_output_tokens": 4096,
+}
+model = genai.GenerativeModel(model_name="gemini-2.5-pro",
+                              generation_config=generation_config)
 
 
 # --- 2. PROMPTS DOS ESPECIALISTAS (CONSTANTES) ---
