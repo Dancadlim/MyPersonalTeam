@@ -5,6 +5,9 @@ import time
 from fpdf import FPDF
 import os
 
+#
+#loucura
+
 # --- 1. CONFIGURAÇÃO DA PÁGINA E API ---
 st.set_page_config(page_title="Holistic Health AI", page_icon="🧬", layout="wide")
 
