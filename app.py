@@ -5,337 +5,269 @@ import time
 from fpdf import FPDF
 import os
 
-#
-#loucura
-
-# --- 1. CONFIGURAÇÃO DA PÁGINA E API ---
+# --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Holistic Health AI", page_icon="🧬", layout="wide")
-#ta tudo funcionando
-# Inicializa variáveis de sessão essenciais
-if 'pagina_atual' not in st.session_state:
-    st.session_state.pagina_atual = 'landing'
-if 'plano_final' not in st.session_state:
-    st.session_state.plano_final = ""
-if 'dados_usuario' not in st.session_state:
-    st.session_state.dados_usuario = {}
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
 
-# --- LÓGICA DE API KEY (Automática via Secrets) ---
+if 'pagina_atual' not in st.session_state: st.session_state.pagina_atual = 'landing'
+if 'plano_final' not in st.session_state: st.session_state.plano_final = ""
+if 'dados_usuario' not in st.session_state: st.session_state.dados_usuario = {}
+if 'chat_history' not in st.session_state: st.session_state.chat_history = []
+
+# --- LÓGICA DE API KEY ---
 api_key = None
-
 try:
-    # Tenta ler a estrutura que você criou na imagem: [google] -> api_key
     if "google" in st.secrets and "api_key" in st.secrets["google"]:
         api_key = st.secrets["google"]["api_key"]
-    
-    # Fallback: Tenta ler se estiver solta (caso mude depois)
     elif "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
-        
-except Exception as e:
-    # Se der erro de leitura (ex: localmente sem arquivo secrets.toml)
-    pass
+except Exception: pass
 
-# Se não encontrar a chave, para o app e avisa (sem mostrar campo de input)
 if not api_key:
-    st.error("🚨 Erro de Configuração: API Key não detectada.")
-    st.info("Certifique-se de que a chave está configurada nos 'Secrets' do Streamlit Cloud.")
-    st.stop() # Interrompe o código aqui para não dar erro mais para frente
+    st.error("🚨 Erro de Configuração: API Key não detectada nos Secrets.")
+    st.stop()
 
-# --- CONFIGURA O GEMINI ---
 genai.configure(api_key=api_key)
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 1,
-    "top_k": 1,
-    "max_output_tokens": 4096,
-}
 model = genai.GenerativeModel(model_name="gemini-2.5-flash",
-                              generation_config=generation_config)
+                              generation_config={"temperature": 0.7, "max_output_tokens": 8192})
 
-
-# --- 2. PROMPTS DOS ESPECIALISTAS (CONSTANTES) ---
+# --- 2. PROMPTS BLINDADOS (CORREÇÃO DA NUTRIÇÃO) ---
 
 PROMPT_PERSONAL = """
-Você é um Personal Trainer especialista em hipertrofia e performance.
-Sua tarefa é criar ou ajustar um plano de treino de 4 dias.
-REGRAS:
-1. Analise o histórico da conversa e o plano atual.
-2. Se o plano estiver perfeito E TODOS os outros especialistas já tiverem concordado no ciclo anterior, comece sua resposta com 'ok'.
-3. Se for a primeira rodada ou se ajustes forem necessários, NÃO comece com 'ok'. Comece diretamente com sua proposta de plano de treino.
-4. Você DEVE respeitar as limitações do fisioterapeuta.
+Você é um Personal Trainer de elite.
+TAREFA: Criar um plano de treino detalhado.
+INPUT: Dados do usuário e histórico.
+SAÍDA OBRIGATÓRIA:
+1. Se for a primeira vez, crie o treino (Exercício, Séries, Repetições, Descanso).
+2. Se estiver revisando após feedback do Fisio, AJUSTE o treino.
+3. Se todos concordarem, comece com 'ok'.
 """
 
 PROMPT_FISIO = """
-Você é um Fisioterapeuta Esportivo focado em prevenção de lesões.
-Sua tarefa é revisar o plano de treino do Personal Trainer.
-REGRAS:
-1. Analise o histórico e o plano atual, focando nas lesões ou dores citadas pelo usuário.
-2. Se o plano de treino proposto for 100% seguro e você concordar, comece sua resposta com 'ok' e repita o plano de treino aprovado.
-3. Se você tiver QUALQUER ressalva (ex: exercício perigoso para a lesão citada), NÃO comece com 'ok'. Comece sua resposta com suas objeções e proponha um plano modificado.
+Você é um Fisioterapeuta Esportivo.
+TAREFA: Garantir a segurança do usuário.
+INPUT: Plano de treino atual + Histórico de lesões.
+SAÍDA OBRIGATÓRIA:
+1. Analise cada exercício proposto pelo Personal contra as lesões do usuário.
+2. Se houver risco: VETE e sugira a substituição (ex: "Trocar Agachamento por Leg Press").
+3. Se seguro: APROVE (comece com 'ok') e adicione uma seção de "Mobilidade/Aquecimento Obrigatório".
+IMPORTANTÍSSIMO: Mantenha o treino aprovado no texto da sua resposta.
 """
 
 PROMPT_NUTRI = """
 Você é um Nutricionista Esportivo.
-Sua tarefa é adicionar um plano nutricional ao plano de treino/fisio.
-REGRAS:
-1. Analise o histórico e o plano de treino/fisio atual.
-2. Crie um plano nutricional que SE INTEGRE ao plano atual, respeitando o orçamento e preferências.
-3. Se você concordar com o plano de treino e seu plano de dieta for apenas um acréscimo, comece sua resposta com 'ok'.
-4. Se o plano de treino for tão intenso que exija mudanças drásticas na dieta que pareçam irreais, você pode vetar (não comece com 'ok').
-5. Sua resposta final deve conter O PLANO COMPLETO (Treino + Nutrição).
+TAREFA: Criar um cardápio diário COMPLETO e anexá-lo ao plano.
+INPUT: Dados do usuário (peso, altura, rotina, gostos) + Plano de Treino/Fisio aprovado.
+REGRAS CRÍTICAS:
+1. Você NÃO pode apenas dar dicas. Você tem que montar o cardápio: Café, Almoço, Lanche, Jantar.
+2. Calcule estimativa de Calorias e Proteínas baseada no peso/altura/objetivo.
+3. O plano de treino e fisio ANTERIOR não pode sumir.
+SAÍDA OBRIGATÓRIA:
+- Repita o Plano de Treino/Fisio.
+- Adicione: "## 🍎 PLANO NUTRICIONAL DIÁRIO"
+- Liste as refeições com quantidades (ex: 150g de frango).
 """
 
 PROMPT_MEDICO_GERAL = """
-Você é um Coach de Saúde Holística (Bem-Estar Geral).
-Sua tarefa é revisar o plano consolidado (treino + nutrição) e cuidar do bem-estar.
-REGRAS:
-1. Analise o plano completo. Adicione notas sobre sono, gerenciamento de estresse e hidratação.
-2. Você é o CONSOLIDADOR FINAL. Sua resposta é o "Plano Oficial" desta rodada.
-3. Se o plano integrado (treino + fisio + nutri) parecer coeso e saudável, comece sua resposta com 'ok' e apresente o plano final consolidado formatado em Markdown.
-4. Se algo parecer conflitante, NÃO comece com 'ok'. Aponte a falha e mande de volta para revisão.
+Você é um Coach de Saúde Holística (Gerente do Projeto).
+TAREFA: Consolidar, formatar e dar o polimento final.
+INPUT: O documento contendo Treino + Mobilidade + Dieta.
+REGRAS CRÍTICAS:
+1. Verifique se a DIETA está presente. Se não estiver, invente uma baseada nos dados ou mande refazer (mas para este MVP, garanta que ela apareça).
+2. Adicione seção de "Bem-Estar": Sono, Hidratação (calcule ML), Estresse.
+3. Formate tudo em Markdown limpo para virar PDF depois.
+4. Sua resposta é o PRODUTO FINAL. Não resuma demais, o usuário precisa dos detalhes (quantos gramas comer, quantas séries fazer).
 """
 
-# --- 3. FUNÇÕES AUXILIARES ---
+# --- 3. FUNÇÕES ---
 
 def gerar_pdf(texto_plano):
-    """Gera um PDF simples com o plano."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Plano de Saude Holistica - IA", ln=1, align='C')
+    pdf.cell(200, 10, txt="Plano Holistico Integrado", ln=1, align='C')
     pdf.ln(10)
-    # Tratamento básico de texto
+    
+    # Limpeza básica de caracteres para FPDF (que não suporta emojis/utf-8 complexos nativamente)
     texto_limpo = texto_plano.encode('latin-1', 'replace').decode('latin-1')
+    
+    # Tenta imprimir linha a linha para evitar quebras gigantes
     pdf.set_font("Arial", size=10)
-    pdf.multi_cell(0, 10, txt=texto_limpo)
+    pdf.multi_cell(0, 6, txt=texto_limpo)
+    
     return pdf.output(dest='S').encode('latin-1')
 
-def chamar_especialista(persona_prompt, historico_conversa, tarefa_atual, status_container):
-    """
-    Chama a API do Gemini com lógica de retry, atualizando a UI do Streamlit.
-    """
-    if not model:
-        status_container.error("Erro: Modelo não inicializado (API Key ausente).")
-        return "ERRO"
+def chamar_especialista(persona, historico, tarefa, status):
+    prompt = f"{persona}\n--- HISTÓRICO ---\n{historico}\n--- TAREFA ---\n{tarefa}"
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        status.error(f"Erro na API: {e}")
+        return "Erro ao gerar resposta."
 
-    prompt_completo = f"""
-    {persona_prompt}
-    --- HISTÓRICO DA DISCUSSÃO ATÉ AGORA ---
-    {historico_conversa}
-    ------------------------------------
-    TAREFA ATUAL: {tarefa_atual}
-    Sua resposta (lembre-se da regra do 'ok'):
-    """
+def simular_agentes(d):
+    # Montagem da Descrição Expandida
+    desc_user = f"""
+    PERFIL: {d['nome']}, {d['idade']} anos, {d['sexo']}.
+    CORPO: {d['peso']}kg, {d['altura']}cm.
+    OBJETIVO: {d['objetivo']} (Prazo: {d['prazo']}).
     
-    max_tentativas = 3
-    tentativa_atual = 0
+    LOGÍSTICA TREINO: {d['dias_treino']}x na semana. Dispõe de {d['tempo_treino']} min/dia.
+    Local: {d['local_treino']}. Exp: {d['experiencia']}.
     
-    while tentativa_atual < max_tentativas:
-        try:
-            response = model.generate_content(prompt_completo)
-            return response.text.strip()
-        except google_exceptions.TooManyRequests:
-            tentativa_atual += 1
-            status_container.warning(f"Limite de API atingido. Aguardando 20s... (Tentativa {tentativa_atual}/{max_tentativas})")
-            time.sleep(20)
-        except Exception as e:
-            status_container.error(f"Erro na API: {e}")
-            raise e
-            
-    return "ERRO: Não foi possível obter resposta do especialista."
-
-def simular_agentes(dados):
-    """Executa o LOOP de agentes."""
+    SAÚDE/LIMITAÇÕES: {d['lesoes']}. Condições: {d['saude_geral']}.
     
-    descricao_usuario = f"""
-    Nome: {dados['nome']}, Idade: {dados.get('idade', 'N/A')}.
-    Objetivo: {dados['objetivo']}.
-    Dias de Treino Disponíveis: {dados['dias_treino']} dias por semana.
-    Experiência: {dados.get('experiencia', 'Iniciante')}.
-    Histórico de Lesões/Dores: {dados['lesoes']}.
-    Orçamento Nutricional: {dados['orcamento_nutri']}.
-    Restrições Alimentares: {dados.get('restricoes', 'Nenhuma')}.
+    NUTRIÇÃO:
+    - Cozinha? {d['cozinha']}.
+    - Refeições/dia: {d['refeicoes_dia']}.
+    - Orçamento: {d['orcamento']}.
+    - Não come: {d['restricoes']}.
+    - Suplementa? {d['suplementos']}.
+    
+    ESTILO DE VIDA:
+    - Trabalho: {d['trabalho']}.
+    - Sono: {d['sono']}h/noite.
+    - Stress (0-10): {d['estresse']}.
     """
 
-    consenso_atingido = False
-    historico_conversa = f"Paciente: {descricao_usuario}\n"
-    plano_atual = "Nenhum plano criado ainda."
-    max_ciclos = 3 
-    ciclo_atual = 0
+    consenso = False
+    hist = f"Paciente: {desc_user}\n"
+    plano = "Nenhum plano ainda."
+    ciclo = 0
     
-    with st.status("Equipe de Especialistas em Reunião...", expanded=True) as status:
-        while not consenso_atingido and ciclo_atual < max_ciclos:
-            ciclo_atual += 1
-            status.write(f"--- 🔄 Ciclo de Revisão {ciclo_atual} ---")
-            
-            respostas_comecam_com_ok = []
+    with st.status("Reunião do Conselho Multidisciplinar...", expanded=True) as s:
+        while not consenso and ciclo < 2: # Limitado a 2 ciclos para o MVP ser rápido
+            ciclo += 1
+            s.write(f"--- 🔄 Rodada {ciclo} ---")
+            oks = []
 
-            # --- PERSONAL ---
-            status.write("🏋️ **Personal Trainer** está elaborando o treino...")
-            resp_personal = chamar_especialista(PROMPT_PERSONAL, historico_conversa, f"Criar/ajustar plano. Atual: {plano_atual}", status)
-            plano_atual = resp_personal
-            historico_conversa += f"Personal Trainer: {resp_personal}\n"
-            respostas_comecam_com_ok.append(resp_personal.lower().startswith('ok'))
-            
-            # --- FISIO ---
-            status.write("🩺 **Fisioterapeuta** está analisando segurança...")
-            resp_fisio = chamar_especialista(PROMPT_FISIO, historico_conversa, f"Revisar segurança. Atual: {plano_atual}", status)
-            plano_atual = resp_fisio
-            historico_conversa += f"Fisioterapeuta: {resp_fisio}\n"
-            respostas_comecam_com_ok.append(resp_fisio.lower().startswith('ok'))
-            
-            # --- NUTRI ---
-            status.write("🍎 **Nutricionista** está calculando a dieta...")
-            resp_nutri = chamar_especialista(PROMPT_NUTRI, historico_conversa, f"Revisar/adicionar nutrição. Atual: {plano_atual}", status)
-            plano_atual = resp_nutri
-            historico_conversa += f"Nutricionista: {resp_nutri}\n"
-            respostas_comecam_com_ok.append(resp_nutri.lower().startswith('ok'))
-            
-            # --- COACH ---
-            status.write("🧘 **Coach de Bem-Estar** está consolidando...")
-            resp_medico = chamar_especialista(PROMPT_MEDICO_GERAL, historico_conversa, f"Consolidar plano final. Atual: {plano_atual}", status)
-            plano_atual = resp_medico
-            historico_conversa += f"Coach: {resp_medico}\n"
-            respostas_comecam_com_ok.append(resp_medico.lower().startswith('ok'))
-            
-            if all(respostas_comecam_com_ok):
-                consenso_atingido = True
-                status.update(label="🎉 Consenso Atingido! Plano pronto.", state="complete", expanded=False)
-            else:
-                status.warning(f"⚠️ Ajustes necessários. Reiniciando ciclo...")
+            s.write("🏋️ **Personal:** Desenhando periodização...")
+            resp = chamar_especialista(PROMPT_PERSONAL, hist, f"Criar/Ajustar Treino. Atual: {plano}", s)
+            plano = resp
+            hist += f"Personal: {resp}\n"
+            oks.append(resp.lower().startswith('ok'))
+
+            s.write("🩺 **Fisio:** Verificando biomecânica e riscos...")
+            resp = chamar_especialista(PROMPT_FISIO, hist, f"Validar segurança. Atual: {plano}", s)
+            plano = resp
+            hist += f"Fisio: {resp}\n"
+            oks.append(resp.lower().startswith('ok'))
+
+            s.write("🍎 **Nutri:** Calculando macros e cardápio...")
+            resp = chamar_especialista(PROMPT_NUTRI, hist, f"Inserir Dieta Detalhada. Atual: {plano}", s)
+            plano = resp
+            hist += f"Nutri: {resp}\n"
+            oks.append(resp.lower().startswith('ok'))
+
+            s.write("🧘 **Coach:** Consolidando relatório final...")
+            resp = chamar_especialista(PROMPT_MEDICO_GERAL, hist, f"Formatar Plano Final. Atual: {plano}", s)
+            plano = resp
+            hist += f"Coach: {resp}\n"
+            oks.append(resp.lower().startswith('ok'))
+
+            if all(oks): consenso = True
         
-        if not consenso_atingido:
-            status.update(label="⚠️ Limite de ciclos atingido. Entregando melhor versão.", state="error")
-            
-    return plano_atual
+        s.update(label="Plano Finalizado!", state="complete", expanded=False)
+    
+    return plano
 
-# --- 4. INTERFACE DO APLICATIVO (ROTEAMENTO) ---
+# --- 4. INTERFACE ---
 
 def pagina_landing():
-    st.title("Holistic Health AI 🧬")
-    st.subheader("Sua equipe multidisciplinar de saúde, potencializada por IA.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("""
-        ### O fim dos planos genéricos.
-        Nossa plataforma simula uma junta médica real. Um Personal Trainer, um Nutricionista, 
-        um Fisioterapeuta e um Coach de Bem-Estar debatem o seu caso até chegarem 
-        na solução perfeita.
-        """)
-        
-        # Só habilita o botão se a API key estiver presente
-        if api_key:
-            if st.button("Começar Minha Transformação", type="primary"):
-                st.session_state.pagina_atual = 'anamnese'
-                st.rerun()
-        else:
-            st.error("🔒 Para começar, insira sua API Key na barra lateral à esquerda.")
-            
-    with col2:
-        st.info("🤖 Personal Trainer\n\n🩺 Fisioterapeuta\n\n🍎 Nutricionista\n\n🧘 Coach de Bem-Estar")
+    st.title("Holistic Health AI 2.0 🧬")
+    st.write("Sua equipe de saúde completa: Treino, Dieta e Fisioterapia integrados por IA.")
+    if st.button("Iniciar Anamnese Completa", type="primary"):
+        st.session_state.pagina_atual = 'anamnese'
+        st.rerun()
 
 def pagina_anamnese():
-    st.title("Anamnese Inteligente")
-    st.write("Preencha os dados para que nossa equipe possa iniciar a reunião.")
+    st.title("Anamnese Profissional")
+    st.info("Quanto mais detalhes, mais preciso será seu plano.")
     
-    with st.form("form_anamnese"):
-        col1, col2 = st.columns(2)
-        nome = col1.text_input("Seu Nome")
-        idade = col2.number_input("Idade", min_value=16, max_value=90, value=25)
+    with st.form("form_completo"):
         
-        st.subheader("Treino & Corpo")
-        c1, c2, c3 = st.columns(3)
-        dias_treino = c1.slider("Dias p/ Treinar (Semana)", 1, 7, 4)
-        experiencia = c2.selectbox("Experiência", ["Iniciante", "Intermediário", "Avançado", "Atleta"])
-        objetivo = c3.selectbox("Objetivo", ["Hipertrofia", "Emagrecimento", "Performance", "Saúde"])
-        
-        lesoes = st.text_area("🚑 Histórico de Lesões ou Dores (Importante para o Fisio)", 
-                              placeholder="Ex: Tenho condromalácia no joelho esquerdo...")
-        
-        st.subheader("Nutrição")
-        orcamento_nutri = st.selectbox("Orçamento para Dieta", ["Econômico (Ovos/Frango/Raízes)", "Médio", "Alto (Livre)"])
-        restricoes = st.text_input("Alergias ou Restrições Alimentares", placeholder="Ex: Intolerante a lactose, não gosto de peixe...")
-        
-        submitted = st.form_submit_button("Convocar Especialistas e Gerar Plano")
-        
-        if submitted:
-            if not api_key:
-                st.error("Configure a API Key antes de continuar.")
-            else:
-                st.session_state.dados_usuario = {
-                    "nome": nome, "idade": idade, "dias_treino": dias_treino,
-                    "experiencia": experiencia, "objetivo": objetivo,
-                    "lesoes": lesoes, "orcamento_nutri": orcamento_nutri,
-                    "restricoes": restricoes
-                }
-                plano = simular_agentes(st.session_state.dados_usuario)
-                st.session_state.plano_final = plano
-                st.session_state.pagina_atual = 'dashboard'
-                st.rerun()
+        with st.expander("1. Biometria e Objetivo", expanded=True):
+            c1, c2, c3 = st.columns(3)
+            nome = c1.text_input("Nome")
+            idade = c2.number_input("Idade", 16, 90, 25)
+            sexo = c3.selectbox("Sexo Biológico (p/ cálculo basal)", ["Masculino", "Feminino"])
+            
+            c4, c5, c6 = st.columns(3)
+            peso = c4.number_input("Peso (kg)", 40.0, 200.0, 70.0)
+            altura = c5.number_input("Altura (cm)", 100, 230, 170)
+            objetivo = c6.selectbox("Objetivo Principal", ["Hipertrofia", "Emagrecimento Agressivo", "Emagrecimento Gradual", "Performance Atlética", "Saúde/Manutenção"])
+            prazo = st.text_input("Tem algum prazo/evento?", placeholder="Ex: Casamento em 3 meses, ou 'Sem pressa'")
+
+        with st.expander("2. Rotina de Treino"):
+            c1, c2 = st.columns(2)
+            local_treino = c1.selectbox("Onde vai treinar?", ["Academia Completa", "Academia de Prédio (Básica)", "Em Casa (Peso do corpo)", "Em Casa (Com alguns equipamentos)"])
+            experiencia = c2.selectbox("Nível", ["Sedentário", "Iniciante", "Intermediário", "Avançado"])
+            
+            c3, c4 = st.columns(2)
+            dias_treino = c3.slider("Dias por semana", 1, 7, 4)
+            tempo_treino = c4.slider("Minutos disponíveis por treino", 20, 120, 60)
+            
+            lesoes = st.text_area("🚑 Lesões, dores ou cirurgias passadas?", placeholder="Ex: Dor na lombar ao ficar muito tempo em pé...")
+
+        with st.expander("3. Nutrição e Hábitos"):
+            c1, c2 = st.columns(2)
+            cozinha = c1.selectbox("Você cozinha?", ["Sim, gosto", "Sim, o básico", "Não, compro pronto/marmita"])
+            refeicoes_dia = c2.selectbox("Quantas refeições prefere?", ["3 (Café, Almoço, Jantar)", "4 (+ Lanche)", "5 ou 6 (Várias pequenas)"])
+            
+            orcamento = st.selectbox("Orçamento Alimentar", ["Econômico (Ovos, Frango, Batata)", "Médio", "Alto (Salmão, Suplementos, etc)"])
+            suplementos = st.text_input("Toma ou tomaria suplementos?", placeholder="Ex: Whey, Creatina, ou 'Prefiro só comida'")
+            restricoes = st.text_area("O que NÃO come de jeito nenhum? (Alergias ou Gosto)", placeholder="Ex: Odeio fígado, sou intolerante a lactose...")
+
+        with st.expander("4. Estilo de Vida"):
+            c1, c2, c3 = st.columns(3)
+            trabalho = c1.selectbox("Rotina de Trabalho", ["Sedentário (Escritório)", "Misto", "Ativo (Em pé/Movimento)", "Muito Ativo (Braçal)"])
+            sono = c2.number_input("Média de horas de sono", 4, 12, 7)
+            estresse = c3.slider("Nível de Estresse (0-10)", 0, 10, 5)
+            saude_geral = st.text_input("Alguma condição de saúde?", placeholder="Diabetes, Hipertensão, Ansiedade...")
+
+        if st.form_submit_button("Gerar Plano Holístico"):
+            d = {
+                "nome": nome, "idade": idade, "sexo": sexo, "peso": peso, "altura": altura,
+                "objetivo": objetivo, "prazo": prazo, "local_treino": local_treino,
+                "experiencia": experiencia, "dias_treino": dias_treino, "tempo_treino": tempo_treino,
+                "lesoes": lesoes, "cozinha": cozinha, "refeicoes_dia": refeicoes_dia,
+                "orcamento": orcamento, "suplementos": suplementos, "restricoes": restricoes,
+                "trabalho": trabalho, "sono": sono, "estresse": estresse, "saude_geral": saude_geral
+            }
+            st.session_state.dados_usuario = d
+            st.session_state.plano_final = simular_agentes(d)
+            st.session_state.pagina_atual = 'dashboard'
+            st.rerun()
 
 def pagina_dashboard():
-    nome = st.session_state.dados_usuario.get('nome', 'Usuário')
-    st.title(f"Painel de {nome}")
-    
-    if st.button("⬅️ Voltar ao Início"):
+    st.title(f"Plano de {st.session_state.dados_usuario.get('nome')}")
+    if st.button("⬅️ Refazer"):
         st.session_state.pagina_atual = 'landing'
         st.rerun()
     
-    tab1, tab2, tab3 = st.tabs(["📋 Meu Plano Oficial", "✅ Check-in Diário", "💬 Assistente Pessoal"])
+    tab1, tab2 = st.tabs(["📄 Plano Completo", "💬 Tirar Dúvidas"])
     
-    # TAB 1
     with tab1:
-        st.success("Este plano foi aprovado por consenso da equipe.")
-        col_btn, col_info = st.columns([1, 4])
-        with col_btn:
-            try:
-                pdf_bytes = gerar_pdf(st.session_state.plano_final)
-                st.download_button("📥 Baixar PDF", pdf_bytes, "plano_holistico.pdf", "application/pdf")
-            except Exception:
-                st.warning("Erro ao gerar PDF.")
-        st.markdown("---")
         st.markdown(st.session_state.plano_final)
-        
-    # TAB 2
+        try:
+            pdf = gerar_pdf(st.session_state.plano_final)
+            st.download_button("📥 Baixar PDF", pdf, "plano.pdf", "application/pdf")
+        except: st.warning("Erro na geração do PDF.")
+
     with tab2:
-        st.header("Metas de Hoje")
-        c1, c2, c3 = st.columns(3)
-        c1.checkbox("🏋️ Treino Realizado")
-        c2.checkbox("🍎 Dieta 100%")
-        c3.checkbox("😴 Dormi bem")
-        if st.button("Salvar Dia"):
-            st.toast("Progresso registrado! (Simulação)")
-
-    # TAB 3 (Chatbot)
-    with tab3:
-        st.header("Tire dúvidas sobre seu plano")
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        if prompt := st.chat_input("Ex: Posso trocar o arroz por batata hoje?"):
+        for msg in st.session_state.chat_history:
+            st.chat_message(msg["role"]).write(msg["content"])
+        if prompt := st.chat_input("Dúvida sobre o plano?"):
             st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+            st.chat_message("user").write(prompt)
+            
+            ctx = f"Baseado no plano: {st.session_state.plano_final}. Responda: {prompt}"
+            resp = model.generate_content(ctx).text
+            
+            st.session_state.chat_history.append({"role": "assistant", "content": resp})
+            st.chat_message("assistant").write(resp)
 
-            if model:
-                with st.chat_message("assistant"):
-                    with st.spinner("Consultando o plano..."):
-                        contexto = f"Você é um assistente útil. Responda com base neste plano aprovado: {st.session_state.plano_final}"
-                        try:
-                            resposta = model.generate_content(f"{contexto}\n\nUsuário: {prompt}").text
-                            st.markdown(resposta)
-                            st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-                        except Exception as e:
-                            st.error(f"Erro ao responder: {e}")
-
-# Roteador
-if st.session_state.pagina_atual == 'landing':
-    pagina_landing()
-elif st.session_state.pagina_atual == 'anamnese':
-    pagina_anamnese()
-elif st.session_state.pagina_atual == 'dashboard':
-    pagina_dashboard()
+# ROTEADOR
+if st.session_state.pagina_atual == 'landing': pagina_landing()
+elif st.session_state.pagina_atual == 'anamnese': pagina_anamnese()
+elif st.session_state.pagina_atual == 'dashboard': pagina_dashboard()
