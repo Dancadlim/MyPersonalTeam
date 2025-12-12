@@ -46,6 +46,8 @@ generation_config = {
     "top_k": 1,
     "max_output_tokens": 8192, 
 }
+# Verifique se o modelo "gemini-2.5-flash-lite" está disponível na sua conta. 
+# Caso contrário, use "gemini-1.5-flash" ou "gemini-1.5-pro".
 model = genai.GenerativeModel(model_name="gemini-2.5-flash-lite",
                               generation_config=generation_config)
 
@@ -80,7 +82,8 @@ INPUT: Dados do usuário (peso, altura, rotina, gostos) + Plano de Treino/Fisio 
 REGRAS CRÍTICAS:
 1. Você NÃO pode apenas dar dicas. Você tem que montar o cardápio: Café, Almoço, Lanche, Jantar.
 2. Calcule estimativa de Calorias e Proteínas baseada no peso/altura/objetivo.
-3. O plano de treino e fisio ANTERIOR não pode sumir. VOCÊ DEVE REPETI-LO.
+3. Considere a ingestão de ÁGUA informada e ajuste a meta hídrica se necessário.
+4. O plano de treino e fisio ANTERIOR não pode sumir. VOCÊ DEVE REPETI-LO.
 SAÍDA OBRIGATÓRIA:
 - Repita o Plano de Treino/Fisio Integralmente.
 - Adicione: "## 🍎 PLANO NUTRICIONAL DIÁRIO"
@@ -93,7 +96,7 @@ TAREFA: Consolidar, formatar e dar o polimento final.
 INPUT: O documento contendo Treino + Mobilidade + Dieta.
 REGRAS CRÍTICAS:
 1. Verifique se a DIETA está presente. Se não estiver, invente uma baseada nos dados (mas para este MVP, garanta que ela apareça).
-2. Adicione seção de "Bem-Estar": Sono, Hidratação (calcule ML), Estresse.
+2. Adicione seção de "Bem-Estar": Sono, Hidratação (calcule ML ideal vs atual), Estresse.
 3. Formate tudo em Markdown limpo.
 4. Sua resposta é o PRODUTO FINAL. Não resuma demais, o usuário precisa dos detalhes.
 """
@@ -110,7 +113,10 @@ def gerar_pdf(texto_plano):
     
     # Tratamento básico de texto para o FPDF (latin-1)
     # Substitui caracteres que costumam quebrar o FPDF básico
-    texto_limpo = texto_plano.encode('latin-1', 'replace').decode('latin-1')
+    try:
+        texto_limpo = texto_plano.encode('latin-1', 'replace').decode('latin-1')
+    except:
+        texto_limpo = texto_plano # Fallback simples
     
     pdf.set_font("Arial", size=10)
     pdf.multi_cell(0, 6, txt=texto_limpo)
@@ -168,6 +174,7 @@ def simular_agentes(d):
     NUTRIÇÃO:
     - Cozinha? {d['cozinha']}.
     - Refeições/dia: {d['refeicoes_dia']}.
+    - Água atual: {d['agua_atual']} Litros/dia.
     - Orçamento: {d['orcamento']}.
     - Não come: {d['restricoes']}.
     - Suplementa? {d['suplementos']}.
@@ -298,7 +305,11 @@ def pagina_anamnese():
             cozinha = c1.selectbox("Você cozinha?", ["Sim, gosto", "Sim, o básico", "Não, compro pronto/marmita"])
             refeicoes_dia = c2.selectbox("Quantas refeições prefere?", ["3 (Café, Almoço, Jantar)", "4 (+ Lanche)", "5 ou 6 (Várias pequenas)"])
             
-            orcamento = st.selectbox("Orçamento Alimentar", ["Econômico (Ovos, Frango, Batata)", "Médio", "Alto (Salmão, Suplementos, etc)"])
+            c3, c4 = st.columns(2)
+            orcamento = c3.selectbox("Orçamento Alimentar", ["Econômico (Ovos, Frango, Batata)", "Médio", "Alto (Salmão, Suplementos, etc)"])
+            # --- NOVO CAMPO DE ÁGUA ---
+            agua_atual = c4.number_input("Quantos litros de água bebe por dia?", 0.0, 6.0, 1.5, step=0.1)
+            
             suplementos = st.text_input("Toma ou tomaria suplementos?", placeholder="Ex: Whey, Creatina...")
             restricoes = st.text_area("O que NÃO come?", placeholder="Ex: Odeio fígado, sou intolerante a lactose...")
 
@@ -321,7 +332,8 @@ def pagina_anamnese():
                 "dias_treino": dias_treino, "tempo_treino": tempo_treino,
                 "lesoes": lesoes, "cozinha": cozinha, "refeicoes_dia": refeicoes_dia,
                 "orcamento": orcamento, "suplementos": suplementos, "restricoes": restricoes,
-                "trabalho": trabalho, "sono": sono, "estresse": estresse, "saude_geral": saude_geral
+                "trabalho": trabalho, "sono": sono, "estresse": estresse, "saude_geral": saude_geral,
+                "agua_atual": agua_atual # Adicionado ao dicionário
             }
             st.session_state.dados_usuario = d
             st.session_state.plano_final = simular_agentes(d)
@@ -361,26 +373,84 @@ def pagina_dashboard():
         if st.button("Salvar Dia"):
             st.toast("Progresso registrado! (Simulação)")
 
-    # TAB 3: Chatbot (RAG Simples)
+    # TAB 3: Chatbot com Seleção de Especialista e Edição
     with tab3:
-        st.header("Tire dúvidas sobre seu plano")
+        st.header("Consultoria & Ajustes")
+        st.info("Converse com um especialista específico para tirar dúvidas ou PEDIR MUDANÇAS no plano.")
+
+        # 1. Seletor de Especialista
+        tipo_especialista = st.selectbox(
+            "Com quem você quer falar?",
+            ["Equipe Completa (Geral)", "Personal Trainer (Treino)", "Nutricionista (Dieta)", "Fisioterapeuta (Dores/Mobilidade)", "Coach (Sono/Rotina)"]
+        )
+
+        # Mostra histórico
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        if prompt := st.chat_input("Ex: Posso trocar o arroz por batata hoje?"):
+        if prompt := st.chat_input("Ex: Não gosto de batata doce, troque por arroz no almoço."):
+            # Adiciona msg do usuario
             st.session_state.chat_history.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
 
             if model:
                 with st.chat_message("assistant"):
-                    with st.spinner("Consultando o plano..."):
-                        contexto = f"Você é um assistente útil. Responda com base neste plano aprovado: {st.session_state.plano_final}"
+                    with st.spinner(f"{tipo_especialista} está analisando..."):
+                        
+                        # PROMPT AVANÇADO PARA EDIÇÃO
+                        prompt_sistema = f"""
+                        Você está atuando como: {tipo_especialista}.
+                        
+                        O PLANO ATUAL DO USUÁRIO É ESTE:
+                        --- INICIO PLANO ---
+                        {st.session_state.plano_final}
+                        --- FIM PLANO ---
+
+                        O USUÁRIO DISSE: "{prompt}"
+
+                        SUA MISSÃO:
+                        1. Se for uma dúvida simples, apenas responda.
+                        2. Se o usuário pedir para MUDAR algo (ex: trocar alimento, mudar dia de treino, ajustar horário):
+                           - Você DEVE reescrever a parte necessária do plano.
+                           - Você deve manter o restante do plano que não foi afetado.
+                           - Você DEVE analisar se a mudança solicitada quebra alguma regra (ex: Fisio vetar exercício perigoso).
+                        
+                        FORMATO DE RESPOSTA OBRIGATÓRIO (PARA MUDANÇAS):
+                        Se você alterou o plano, no final da sua explicação, você DEVE imprimir o PLANO COMPLETO E ATUALIZADO dentro das tags:
+                        <PLANO_ATUALIZADO>
+                        ... cole o texto completo do novo plano aqui ...
+                        </PLANO_ATUALIZADO>
+                        """
+
                         try:
-                            resposta = model.generate_content(f"{contexto}\n\nUsuário: {prompt}").text
-                            st.markdown(resposta)
-                            st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+                            response = model.generate_content(prompt_sistema)
+                            texto_resposta = response.text
+                            
+                            # Lógica para detectar se houve mudança de plano
+                            if "<PLANO_ATUALIZADO>" in texto_resposta:
+                                # Extrai o novo plano
+                                partes = texto_resposta.split("<PLANO_ATUALIZADO>")
+                                explicacao = partes[0] # O que vem antes da tag
+                                novo_plano_sujo = partes[1]
+                                novo_plano_limpo = novo_plano_sujo.split("</PLANO_ATUALIZADO>")[0].strip()
+                                
+                                # Atualiza a explicação na tela
+                                st.markdown(explicacao)
+                                st.session_state.chat_history.append({"role": "assistant", "content": explicacao})
+                                
+                                # ATUALIZA O ESTADO E RECARREGA
+                                st.session_state.plano_final = novo_plano_limpo
+                                st.toast("✅ Plano Oficial Atualizado com sucesso!", icon="💾")
+                                time.sleep(2) # Dá tempo de ler o toast
+                                st.rerun() # Recarrega a página para mostrar o novo plano na Tab 1
+                                
+                            else:
+                                # Resposta normal (apenas conversa)
+                                st.markdown(texto_resposta)
+                                st.session_state.chat_history.append({"role": "assistant", "content": texto_resposta})
+                                
                         except Exception as e:
                             st.error(f"Erro ao responder: {e}")
 
