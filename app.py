@@ -6,7 +6,8 @@ from fpdf import FPDF
 import os
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA E API ---
-st.set_page_config(page_title="Holistic Health AI", page_icon="🧬", layout="wide")
+# MUDANÇA AQUI: Nome do site alterado
+st.set_page_config(page_title="My Personal Team", page_icon="🧬", layout="wide")
 
 # Inicializa variáveis de sessão essenciais
 if 'pagina_atual' not in st.session_state:
@@ -185,7 +186,7 @@ def simular_agentes(d):
     - Stress (0-10): {d['estresse']}.
     """
 
-    consenso_atingido = False
+    consenso = False
     historico_conversa = f"Paciente: {desc_user}\n"
     plano_atual = "Nenhum plano criado ainda."
     max_ciclos = 2 # MVP: 2 ciclos para ser rápido, mas suficiente para correção
@@ -240,24 +241,70 @@ def simular_agentes(d):
 # --- 4. INTERFACE DO APLICATIVO (ROTEAMENTO) ---
 
 def pagina_landing():
-    st.title("Holistic Health AI 🧬")
-    st.subheader("Sua equipe multidisciplinar de saúde, potencializada por IA.")
+    # Cabeçalho com Estilo
+    st.markdown("""
+        <h1 style='text-align: center; color: #2E86C1;'>My Personal Team 🚀</h1>
+        <h3 style='text-align: center;'>Sua Junta Médica de Inteligência Artificial.</h3>
+        <p style='text-align: center;'>Treino, Dieta, Fisioterapia e Bem-estar integrados em um único plano perfeito.</p>
+        <hr>
+    """, unsafe_allow_html=True)
+
+    # Seção Explicativa (Como Funciona)
+    st.markdown("### 🧬 Como funciona?")
+    col1, col2, col3 = st.columns(3)
     
-    col1, col2 = st.columns(2)
     with col1:
-        st.markdown("""
-        ### O fim dos planos genéricos.
-        Nossa plataforma simula uma junta médica real. Um Personal Trainer, um Nutricionista, 
-        um Fisioterapeuta e um Coach de Bem-Estar debatem o seu caso até chegarem 
-        na solução perfeita.
-        """)
-        
-        if st.button("Começar Minha Transformação", type="primary"):
+        st.info("📝 **1. Você conta sua história**")
+        st.write("Preencha uma anamnese detalhada. A IA entende sua rotina, dores, orçamento e objetivos reais.")
+
+    with col2:
+        st.warning("🤖 **2. A Equipe se reúne**")
+        st.write("4 Agentes de IA debatem seu caso. O Fisio veta o Personal, a Nutri ajusta ao treino. É um consenso.")
+
+    with col3:
+        st.success("📄 **3. Seu Plano Holístico**")
+        st.write("Receba um PDF com Treino, Dieta e Mobilidade 100% integrados, mais um Chatbot para tirar dúvidas.")
+
+    st.markdown("---")
+
+    # Seção: Conheça a Equipe (Visual)
+    st.markdown("### 🏆 Sua nova equipe dedicada")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    
+    with c1:
+        with st.container(border=True):
+            st.markdown("### 🏋️")
+            st.markdown("**Personal Trainer**")
+            st.caption("Foco em Hipertrofia, Performance e Adaptação à Rotina.")
+    
+    with c2:
+        with st.container(border=True):
+            st.markdown("### 🩺")
+            st.markdown("**Fisioterapeuta**")
+            st.caption("Segurança articular, prevenção de lesões e mobilidade.")
+            
+    with c3:
+        with st.container(border=True):
+            st.markdown("### 🍎")
+            st.markdown("**Nutricionista**")
+            st.caption("Dietas flexíveis, cálculo de macros e hidratação.")
+
+    with c4:
+        with st.container(border=True):
+            st.markdown("### 🧘")
+            st.markdown("**Coach Geral**")
+            st.caption("Sono, gerenciamento de estresse e consolidação do plano.")
+
+    st.write("") # Espaçamento
+    st.write("") 
+
+    # Botão de Ação (Call to Action)
+    col_vazia_esq, col_botao, col_vazia_dir = st.columns([1, 2, 1])
+    with col_botao:
+        if st.button("🚀 CONTRATAR MINHA EQUIPE AGORA (Grátis)", use_container_width=True, type="primary"):
             st.session_state.pagina_atual = 'anamnese'
             st.rerun()
-            
-    with col2:
-        st.info("🤖 Personal Trainer\n\n🩺 Fisioterapeuta\n\n🍎 Nutricionista\n\n🧘 Coach de Bem-Estar")
 
 def pagina_anamnese():
     st.title("Anamnese Profissional")
