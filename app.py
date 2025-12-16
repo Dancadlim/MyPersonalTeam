@@ -6,7 +6,6 @@ from fpdf import FPDF
 import os
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA E API ---
-# MUDANÇA AQUI: Nome do site alterado
 st.set_page_config(page_title="My Personal Team", page_icon="🧬", layout="wide")
 
 # Inicializa variáveis de sessão essenciais
@@ -186,7 +185,7 @@ def simular_agentes(d):
     - Stress (0-10): {d['estresse']}.
     """
 
-    consenso = False
+    consenso_atingido = False # <--- CORREÇÃO AQUI (Estava 'consenso = False')
     historico_conversa = f"Paciente: {desc_user}\n"
     plano_atual = "Nenhum plano criado ainda."
     max_ciclos = 2 # MVP: 2 ciclos para ser rápido, mas suficiente para correção
