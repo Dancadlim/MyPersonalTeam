@@ -2,6 +2,11 @@ import streamlit as st
 from paginas.landing import mostrar_landing
 from paginas.anamnese import mostrar_anamnese
 from paginas.dashboard import mostrar_dashboard
+from paginas.admin import mostrar_admin
+from db_manager import init_db
+
+# Inicializa Banco de Dados
+init_db()
 
 st.set_page_config(page_title="My Personal Team", page_icon="🧬", layout="wide")
 
@@ -58,3 +63,5 @@ elif st.session_state.pagina_atual == 'anamnese':
     mostrar_anamnese()
 elif st.session_state.pagina_atual == 'dashboard':
     mostrar_dashboard()
+elif st.session_state.pagina_atual == 'admin':
+    mostrar_admin()

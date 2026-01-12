@@ -50,6 +50,15 @@ def mostrar_anamnese():
                 "suplementos": suplementos, "trabalho": trabalho, "sono": sono, "estresse": estresse, "saude_geral": saude_geral
             }
             st.session_state.dados_usuario = d
-            st.session_state.plano_final = simular_agentes(d, model)
+            plano_gerado = simular_agentes(d, model)
+            st.session_state.plano_final = plano_gerado
+            
+            # Persistência
+            from db_manager import salvar_usuario, salvar_plano, buscar_usuario
+            salvar_usuario(d)
+            user_id, _ = buscar_usuario(d['nome']) # Recupera ID recém criado
+            if user_id:
+                salvar_plano(user_id, plano_gerado)
+            
             st.session_state.pagina_atual = 'dashboard'
             st.rerun()

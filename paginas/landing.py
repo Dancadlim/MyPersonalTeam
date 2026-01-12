@@ -1,28 +1,42 @@
 import streamlit as st
+from db_manager import listar_usuarios, buscar_usuario, ler_plano_recente
 
 def mostrar_landing():
-    st.markdown("""
-        <h1 style='text-align: center; color: #2E86C1;'>My Personal Team 🚀</h1>
-        <h3 style='text-align: center;'>Sua Junta Médica de Inteligência Artificial.</h3>
-        <hr>
-    """, unsafe_allow_html=True)
+    st.title("Bem-vindo ao My Personal Team 🧬")
+    st.write("Sua equipe de saúde multidisciplinar composta por Agentes de IA.")
 
-    col1, col2, col3 = st.columns(3)
-    with col1: st.info("📝 **1. Você conta sua história**"); st.write("Preencha a anamnese.")
-    with col2: st.warning("🤖 **2. A Equipe se reúne**"); st.write("4 Agentes debatem.")
-    with col3: st.success("📄 **3. Seu Plano Holístico**"); st.write("Treino + Dieta + Chat.")
-
-    st.markdown("---")
-    st.markdown("### 🏆 Sua nova equipe")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.container(border=True).markdown("### 🏋️ Personal")
-    c2.container(border=True).markdown("### 🩺 Fisio")
-    c3.container(border=True).markdown("### 🍎 Nutri")
-    c4.container(border=True).markdown("### 🧘 Coach")
-
-    st.write(""); st.write("")
+    # Opção para carregar perfil existente
+    usuarios_existentes = listar_usuarios()
     
-    _, col_btn, _ = st.columns([1, 2, 1])
-    if col_btn.button("🚀 CONTRATAR MINHA EQUIPE (Grátis)", use_container_width=True, type="primary"):
-        st.session_state.pagina_atual = 'anamnese'
+    col_new, col_load = st.columns(2)
+    
+    with col_new:
+        st.subheader("Novo Usuário")
+        if st.button("🚀 Iniciar Nova Anamnese"):
+            st.session_state.pagina_atual = 'anamnese'
+            st.rerun()
+            
+    with col_load:
+        st.subheader("Carregar Perfil")
+        if usuarios_existentes:
+            usuario_selecionado = st.selectbox("Selecione seu perfil:", [""] + usuarios_existentes)
+            if usuario_selecionado and st.button("📂 Carregar"):
+                user_id, dados = buscar_usuario(usuario_selecionado)
+                if dados:
+                    st.session_state.dados_usuario = dados
+                    # Tenta carregar o plano
+                    plano = ler_plano_recente(user_id)
+                    if plano:
+                        st.session_state.plano_final = plano
+                        st.session_state.pagina_atual = 'dashboard'
+                        st.toast(f"Bem-vindo de volta, {usuario_selecionado}!")
+                        st.rerun()
+                    else:
+                        st.warning("Perfil encontrado, mas sem plano salvo.")
+        else:
+            st.info("Nenhum perfil salvo ainda.")
+            
+    st.divider()
+    if st.button("🛠️ Admin"):
+        st.session_state.pagina_atual = 'admin'
         st.rerun()
