@@ -78,7 +78,6 @@ def chamar_especialista(model, persona_prompt, historico_conversa, tarefa_atual,
     {historico_conversa}
     --- TAREFA ---
     {tarefa_atual}
-    Responda começando com 'ok' se estiver tudo certo, ou proponha a mudança.
     """
     max_tentativas = 3
     for tentativa in range(max_tentativas):
