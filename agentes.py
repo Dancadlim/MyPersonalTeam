@@ -23,17 +23,52 @@ def configurar_google_api():
     return None
 
 def gerar_pdf(texto_plano):
-    pdf = FPDF()
+    class PDF(FPDF):
+        def header(self):
+            # Logo ou Título
+            self.set_font('Arial', 'B', 16)
+            self.cell(0, 10, 'Plano de Saúde Holística - IA', 0, 1, 'C')
+            self.ln(5)
+            
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
+
+    pdf = PDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Plano de Saude Holistica - IA", ln=1, align='C')
-    pdf.ln(10)
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Processar texto para simular formatação Markdown básica (Negrito)
+    # FPDF padrão não suporta Markdown nativo, vamos fazer algo simples
+    # ou apenas melhorar a fonte e espaçamento.
+    
+    pdf.set_font("Arial", size=11)
+    
+    # Tratamento básico de caracteres
     try:
-        texto_limpo = texto_plano.encode('latin-1', 'replace').decode('latin-1')
-    except:
-        texto_limpo = texto_plano
-    pdf.set_font("Arial", size=10)
-    pdf.multi_cell(0, 6, txt=texto_limpo)
+        linhas = texto_plano.split('\n')
+        for linha in linhas:
+            linha = linha.encode('latin-1', 'replace').decode('latin-1')
+            
+            # Títulos (detectados por ## ou algo assim no markdown original)
+            if linha.strip().startswith('##'):
+                pdf.ln(5)
+                pdf.set_font("Arial", 'B', 14)
+                pdf.multi_cell(0, 8, txt=linha.replace('#', '').strip())
+                pdf.set_font("Arial", size=11)
+            # Subtítulos ou negrito simulado
+            elif linha.strip().startswith('**'):
+                pdf.ln(2)
+                pdf.set_font("Arial", 'B', 11)
+                pdf.multi_cell(0, 6, txt=linha.replace('*', '').strip())
+                pdf.set_font("Arial", size=11)
+            else:
+                pdf.multi_cell(0, 6, txt=linha)
+                
+    except Exception as e:
+        pdf.multi_cell(0, 6, txt=f"Erro ao formatar PDF: {e}")
+        
     return pdf.output(dest='S').encode('latin-1')
 
 def chamar_especialista(model, persona_prompt, historico_conversa, tarefa_atual, status_container):
@@ -74,34 +109,49 @@ def simular_agentes(d, model):
     ciclo = 0
     max_ciclos = 2
 
-    with st.status("Reunião do Conselho Multidisciplinar...", expanded=True) as status:
+    # Container para o debate
+    debate_container = st.container()
+    
+    with debate_container:
+        st.subheader("💬 Reunião do Conselho")
+        
         while not consenso_atingido and ciclo < max_ciclos:
             ciclo += 1
-            status.write(f"--- 🔄 Ciclo {ciclo} ---")
+            st.markdown(f"**--- 🔄 Ciclo {ciclo} ---**")
             oks = []
 
-            # Personal
-            status.write("🏋️ Personal Trainer...")
-            resp = chamar_especialista(model, PROMPT_PERSONAL, historico, f"Criar/ajustar plano. Atual: {plano}", status)
-            plano = resp; historico += f"Personal: {resp}\n"; oks.append(resp.lower().startswith('ok'))
-            
-            # Fisio
-            status.write("🩺 Fisioterapeuta...")
-            resp = chamar_especialista(model, PROMPT_FISIO, historico, f"Validar segurança. Atual: {plano}", status)
-            plano = resp; historico += f"Fisio: {resp}\n"; oks.append(resp.lower().startswith('ok'))
+            # Agentes e seus ícones/nomes
+            agentes = [
+                ("Personal Trainer", "🏋️", PROMPT_PERSONAL, "Criar/ajustar plano."),
+                ("Fisioterapeuta", "🩺", PROMPT_FISIO, "Validar segurança."),
+                ("Nutricionista", "🍎", PROMPT_NUTRI, "Inserir Dieta Detalhada."),
+                ("Coach de Saúde", "🧘", PROMPT_MEDICO_GERAL, "Formatar Final.")
+            ]
 
-            # Nutri
-            status.write("🍎 Nutricionista...")
-            resp = chamar_especialista(model, PROMPT_NUTRI, historico, f"Inserir Dieta Detalhada. Atual: {plano}", status)
-            plano = resp; historico += f"Nutri: {resp}\n"; oks.append(resp.lower().startswith('ok'))
-
-            # Coach
-            status.write("🧘 Coach...")
-            resp = chamar_especialista(model, PROMPT_MEDICO_GERAL, historico, f"Formatar Final. Atual: {plano}", status)
-            plano = resp; historico += f"Coach: {resp}\n"; oks.append(resp.lower().startswith('ok'))
+            for nome, icon, prompt_persona, tarefa_base in agentes:
+                # Mostra que o agente está pensando
+                with st.spinner(f"{nome} está analisando..."):
+                    tarefa = f"{tarefa_base} Atual: {plano}" if ciclo > 1 or nome != "Personal Trainer" else tarefa_base
+                    resp = chamar_especialista(model, prompt_persona, historico, tarefa, st.empty())
+                    
+                    # Atualiza estado do plano
+                    plano = resp if "Coach" in nome or ciclo > 0 else (plano + "\n" + resp) 
+                    # Nota: A lógica de concatenação original estava sobrescrevendo 'plano = resp'.
+                    # Vamos manter a lógica original de sobrescrever para simplificar, mas o ideal seria evoluir.
+                    plano = resp 
+                    historico += f"{nome}: {resp}\n"
+                    oks.append(resp.lower().strip().startswith('ok'))
+                
+                # Exibe a fala do agente na UI
+                with st.chat_message(nome, avatar=icon):
+                    st.write(f"**{nome}**: {resp[:300]}..." if len(resp) > 300 else f"**{nome}**: {resp}")
+                    with st.expander("Ver detalhes"):
+                        st.markdown(resp)
+                    time.sleep(1) # Pequena pausa dramática para leitura
 
             if all(oks):
                 consenso_atingido = True
-                status.update(label="Plano Pronto!", state="complete", expanded=False)
+                st.success("✅ Conselho chegou a um consenso!")
+                time.sleep(1.5)
     
     return plano
