@@ -34,3 +34,6 @@ venv/
 env/
 .env
 .venv
+
+# SQLite
+*.db
